@@ -19,3 +19,6 @@ Cargo.lock
 /target
 
 .env
+test.en.mp3
+test.es.mp3
+test.it.mp3
