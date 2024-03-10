@@ -4,12 +4,14 @@ use locale_codes::language::LanguageInfo;
 use tokio::{self, task};
 use tts_rust::{languages::Languages, tts::GTTSClient};
 
-use super::{TtsCapabilites, TtsClient, TtsClientBuilder};
+use super::{TtsCapabilites, TtsClient, TtsClientBuilder, TtsError};
 
 pub struct GTTSClientBuilder {
     volume: f32,
     language: Languages,
 }
+
+//this provider is only for tests, google max len is 100 chars, so it's useless
 
 impl TtsClientBuilder for GTTSClientBuilder {
     fn capabilities() -> &'static [TtsCapabilites] {
@@ -44,14 +46,18 @@ impl TtsClientBuilder for GTTSClientBuilder {
             tld: "com",
         }
     }
+
+    fn set_speed(self, speed: super::SpeechSpeed) -> Self {
+        panic!()
+    }
 }
 
 impl TtsClient for GTTSClient {
-    async fn speak_to_file(self, text: String, path: String) {
-        let _ = task::spawn_blocking(move || {
-            let _ = self.save_to_file(text.as_str(), path.as_str());
-        })
-        .await;
+    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+        let result = task::spawn_blocking(move || self.save_to_file(text.as_str(), path.as_str()))
+            .await
+            .expect("could not join");
+        result.map_err(|e| TtsError::Unknown(e))
     }
 }
 
@@ -92,4 +98,3 @@ mod test {
             .await;
     }
 }
-
