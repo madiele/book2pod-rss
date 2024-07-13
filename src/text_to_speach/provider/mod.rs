@@ -10,12 +10,11 @@ pub trait TtsClient {
 
 pub trait TtsClientBuilder {
     fn capabilities() -> &'static [TtsCapabilites];
-    fn default() -> impl TtsClientBuilder;
-    fn authorize(self) -> impl TtsClientBuilder;
-    fn with_voice(self, voice: String) -> impl TtsClientBuilder;
-    fn set_speed(self, speed: SpeechSpeed) -> impl TtsClientBuilder;
-    fn for_language(self, language: &locale_codes::language::LanguageInfo)
-        -> impl TtsClientBuilder;
+    fn default() -> Self;
+    fn authorize(self) -> Self;
+    fn with_voice(self, voice: String) -> Self;
+    fn set_speed(self, speed: SpeechSpeed) -> Self;
+    fn for_language(self, language: &locale_codes::language::LanguageInfo) -> Self;
     fn build(self) -> impl TtsClient;
 }
 
