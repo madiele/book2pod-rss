@@ -1,5 +1,3 @@
-use core::panic;
-
 use provider::TtsError;
 use reqwest::header;
 use tokio;
@@ -102,7 +100,7 @@ impl TtsClientBuilder for OpenAiTtsClientBuilder {
     }
 
     fn for_language(self, _language: &locale_codes::language::LanguageInfo) -> Self {
-        panic!()
+        self
     }
 
     fn build(self) -> OpenAiTtsClient {
@@ -143,8 +141,13 @@ mod test {
             .set_speed(SpeechSpeed::Normal)
             .build();
 
-        client
+        let res = client
             .speak_to_file("sono un bot, ciao".to_owned(), "test.it.mp3".to_owned())
             .await;
+
+        match res {
+            Ok(_) => (),
+            Err(e) => panic!("{e}"),
+        }
     }
 }

@@ -26,11 +26,11 @@ impl TtsClientBuilder for GTTSClientBuilder {
     }
 
     fn authorize(self) -> Self {
-        panic!()
+        self
     }
 
     fn with_voice(self, _voice: String) -> Self {
-        panic!()
+        self
     }
 
     fn for_language(mut self, language: &LanguageInfo) -> Self {
@@ -48,7 +48,7 @@ impl TtsClientBuilder for GTTSClientBuilder {
     }
 
     fn set_speed(self, speed: super::SpeechSpeed) -> Self {
-        panic!()
+        self
     }
 }
 
