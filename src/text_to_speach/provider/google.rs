@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use locale_codes::language::LanguageInfo;
-use tokio::{self, task};
 use tts_rust::{languages::Languages, tts::GTTSClient};
 
 use super::{TtsCapabilites, TtsClient, TtsClientBuilder, TtsError};
@@ -13,7 +12,7 @@ pub struct GTTSClientBuilder {
 
 //this provider is only for tests, google max len is 100 chars, so it's useless
 
-impl TtsClientBuilder for GTTSClientBuilder {
+impl TtsClientBuilder<GTTSClient> for GTTSClientBuilder {
     fn capabilities() -> &'static [TtsCapabilites] {
         &[TtsCapabilites::LanguageChoice]
     }
@@ -53,11 +52,9 @@ impl TtsClientBuilder for GTTSClientBuilder {
 }
 
 impl TtsClient for GTTSClient {
-    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
-        let result = task::spawn_blocking(move || self.save_to_file(text.as_str(), path.as_str()))
-            .await
-            .expect("could not join");
-        result.map_err(|e| TtsError::Unknown(e))
+    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+        let result = self.save_to_file(text.as_str(), path.as_str());
+        result.map_err(TtsError::Unknown)
     }
 }
 
@@ -71,9 +68,7 @@ mod test {
             .for_language(locale_codes::language::lookup("it").unwrap())
             .build();
 
-        client
-            .speak_to_file("ciao ciao ciao".to_owned(), "test.it.mp3".to_owned())
-            .await;
+        client.speak_to_file("ciao ciao ciao".to_owned(), "test.it.mp3".to_owned());
     }
 
     #[tokio::test]
@@ -82,9 +77,7 @@ mod test {
             .for_language(locale_codes::language::lookup("en").unwrap())
             .build();
 
-        client
-            .speak_to_file("hello hello hello".to_owned(), "test.en.mp3".to_owned())
-            .await;
+        client.speak_to_file("hello hello hello".to_owned(), "test.en.mp3".to_owned());
     }
 
     #[tokio::test]
@@ -93,8 +86,6 @@ mod test {
             .for_language(locale_codes::language::lookup("es").unwrap())
             .build();
 
-        client
-            .speak_to_file("hola hola hola".to_owned(), "test.es.mp3".to_owned())
-            .await;
+        client.speak_to_file("hola hola hola".to_owned(), "test.es.mp3".to_owned());
     }
 }

@@ -1,6 +1,5 @@
 use provider::TtsError;
 use reqwest::header;
-use tokio;
 
 use crate::text_to_speach::provider;
 
@@ -13,9 +12,9 @@ pub struct OpenAiTtsClient {
 }
 
 impl TtsClient for OpenAiTtsClient {
-    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
         let url = "https://api.openai.com/v1/audio/speech";
-        let client = reqwest::Client::new();
+        let client = reqwest::blocking::Client::new();
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
@@ -36,27 +35,22 @@ impl TtsClient for OpenAiTtsClient {
                 "speed": self.speed,
             }))
             .send()
-            .await
             .map_err(|e| TtsError::ConnectionFailure(e.to_string()))?;
 
         if response.status().is_success() {
             let bytes = response
                 .bytes()
-                .await
                 .map_err(|e| TtsError::NoContent(e.to_string()))?;
 
-            tokio::fs::write(path.to_owned(), bytes)
-                .await
+            std::fs::write(path.to_owned(), bytes)
                 .map_err(|e| TtsError::WriteToFileFailure(e.to_string()))?;
         } else {
             if 401 == response.status() {
                 return Err(TtsError::Unauthorized(
-                    response.text().await.unwrap_or("".to_owned()),
+                    response.text().unwrap_or("".to_owned()),
                 ));
             }
-            return Err(TtsError::Unknown(
-                response.text().await.unwrap_or("".to_owned()),
-            ));
+            return Err(TtsError::Unknown(response.text().unwrap_or("".to_owned())));
         }
         Ok(())
     }
@@ -68,7 +62,7 @@ pub struct OpenAiTtsClientBuilder {
     speed: Option<f32>,
 }
 
-impl TtsClientBuilder for OpenAiTtsClientBuilder {
+impl TtsClientBuilder<OpenAiTtsClient> for OpenAiTtsClientBuilder {
     fn capabilities() -> &'static [TtsCapabilites] {
         &[
             TtsCapabilites::VoiceChoice,
@@ -141,9 +135,7 @@ mod test {
             .set_speed(SpeechSpeed::Normal)
             .build();
 
-        let res = client
-            .speak_to_file("sono un bot, ciao".to_owned(), "test.it.mp3".to_owned())
-            .await;
+        let res = client.speak_to_file("sono un bot, ciao".to_owned(), "test.it.mp3".to_owned());
 
         match res {
             Ok(_) => (),
