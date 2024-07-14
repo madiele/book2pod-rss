@@ -9,10 +9,10 @@ enum TtsClientDispatcher {
 }
 
 impl TtsClient for TtsClientDispatcher {
-    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
         match self {
-            TtsClientDispatcher::OpenAi(c) => c.speak_to_file(text, path),
-            TtsClientDispatcher::Google(c) => c.speak_to_file(text, path),
+            TtsClientDispatcher::OpenAi(c) => c.speak_to_file(text, path).await,
+            TtsClientDispatcher::Google(c) => c.speak_to_file(text, path).await,
         }
     }
 }
@@ -47,8 +47,9 @@ where
         .build()
 }
 
+#[trait_variant::make(HttpService: Send)]
 pub trait TtsClient {
-    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError>;
+    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError>;
 }
 
 pub trait TtsClientBuilder<Client>
@@ -109,15 +110,19 @@ impl Display for TtsError {
 mod test {
     use super::{TtsClient, TtsProvider};
 
-    #[test]
-    fn google() {
+    #[tokio::test]
+    async fn google() {
         let test = TtsProvider::Google.default();
-        _ = test.speak_to_file("".to_owned(), "".to_owned());
+        test.speak_to_file("".to_owned(), "".to_owned())
+            .await
+            .unwrap();
     }
 
-    #[test]
-    fn openai() {
+    #[tokio::test]
+    async fn openai() {
         let test = TtsProvider::OpenAi.default();
-        _ = test.speak_to_file("".to_owned(), "".to_owned());
+        test.speak_to_file("".to_owned(), "".to_owned())
+            .await
+            .unwrap();
     }
 }

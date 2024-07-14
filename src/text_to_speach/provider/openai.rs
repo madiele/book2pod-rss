@@ -12,9 +12,9 @@ pub struct OpenAiTtsClient {
 }
 
 impl TtsClient for OpenAiTtsClient {
-    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
         let url = "https://api.openai.com/v1/audio/speech";
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
@@ -35,22 +35,26 @@ impl TtsClient for OpenAiTtsClient {
                 "speed": self.speed,
             }))
             .send()
+            .await
             .map_err(|e| TtsError::ConnectionFailure(e.to_string()))?;
 
         if response.status().is_success() {
             let bytes = response
                 .bytes()
+                .await
                 .map_err(|e| TtsError::NoContent(e.to_string()))?;
 
-            std::fs::write(path.to_owned(), bytes)
+            std::fs::write(&path, bytes)
                 .map_err(|e| TtsError::WriteToFileFailure(e.to_string()))?;
         } else {
             if 401 == response.status() {
                 return Err(TtsError::Unauthorized(
-                    response.text().unwrap_or("".to_owned()),
+                    response.text().await.unwrap_or("".to_owned()),
                 ));
             }
-            return Err(TtsError::Unknown(response.text().unwrap_or("".to_owned())));
+            return Err(TtsError::Unknown(
+                response.text().await.unwrap_or("".to_owned()),
+            ));
         }
         Ok(())
     }
@@ -135,7 +139,9 @@ mod test {
             .set_speed(SpeechSpeed::Normal)
             .build();
 
-        let res = client.speak_to_file("sono un bot, ciao".to_owned(), "test.it.mp3".to_owned());
+        let res = client
+            .speak_to_file("sono un bot, ciao".to_owned(), "test.it.mp3".to_owned())
+            .await;
 
         match res {
             Ok(_) => (),

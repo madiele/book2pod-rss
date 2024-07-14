@@ -46,13 +46,13 @@ impl TtsClientBuilder<GTTSClient> for GTTSClientBuilder {
         }
     }
 
-    fn set_speed(self, speed: super::SpeechSpeed) -> Self {
+    fn set_speed(self, _speed: super::SpeechSpeed) -> Self {
         self
     }
 }
 
 impl TtsClient for GTTSClient {
-    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+    async fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
         let result = self.save_to_file(text.as_str(), path.as_str());
         result.map_err(TtsError::Unknown)
     }
@@ -68,7 +68,10 @@ mod test {
             .for_language(locale_codes::language::lookup("it").unwrap())
             .build();
 
-        client.speak_to_file("ciao ciao ciao".to_owned(), "test.it.mp3".to_owned());
+        client
+            .speak_to_file("ciao ciao ciao".to_owned(), "test.it.mp3".to_owned())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -77,7 +80,10 @@ mod test {
             .for_language(locale_codes::language::lookup("en").unwrap())
             .build();
 
-        client.speak_to_file("hello hello hello".to_owned(), "test.en.mp3".to_owned());
+        client
+            .speak_to_file("hello hello hello".to_owned(), "test.en.mp3".to_owned())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -86,6 +92,9 @@ mod test {
             .for_language(locale_codes::language::lookup("es").unwrap())
             .build();
 
-        client.speak_to_file("hola hola hola".to_owned(), "test.es.mp3".to_owned());
+        client
+            .speak_to_file("hola hola hola".to_owned(), "test.es.mp3".to_owned())
+            .await
+            .unwrap();
     }
 }
