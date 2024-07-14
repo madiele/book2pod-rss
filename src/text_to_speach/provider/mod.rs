@@ -8,6 +8,15 @@ enum TtsClientDispatcher {
     Google(tts_rust::tts::GTTSClient),
 }
 
+impl TtsClient for TtsClientDispatcher {
+    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
+        match self {
+            TtsClientDispatcher::OpenAi(c) => c.speak_to_file(text, path),
+            TtsClientDispatcher::Google(c) => c.speak_to_file(text, path),
+        }
+    }
+}
+
 enum TtsProvider {
     OpenAi,
     Google,
@@ -21,16 +30,7 @@ impl TtsProvider {
             )),
             TtsProvider::Google => {
                 TtsClientDispatcher::Google(create_tts_client(google::GTTSClientBuilder::default()))
-            } // Default to Google if environment variable is not set
-        }
-    }
-}
-
-impl TtsClient for TtsClientDispatcher {
-    fn speak_to_file(self, text: String, path: String) -> Result<(), TtsError> {
-        match self {
-            TtsClientDispatcher::OpenAi(c) => c.speak_to_file(text, path),
-            TtsClientDispatcher::Google(c) => c.speak_to_file(text, path),
+            }
         }
     }
 }
