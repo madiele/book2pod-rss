@@ -113,7 +113,7 @@ mod test {
     #[tokio::test]
     async fn google() {
         let test = TtsProvider::Google.default();
-        test.speak_to_file("".to_owned(), "".to_owned())
+        test.speak_to_file("hello world".to_owned(), "provider.mod.test.mp3".to_owned())
             .await
             .unwrap();
     }
@@ -121,7 +121,7 @@ mod test {
     #[tokio::test]
     async fn openai() {
         let test = TtsProvider::OpenAi.default();
-        test.speak_to_file("".to_owned(), "".to_owned())
+        test.speak_to_file("hello world".to_owned(), "provider.mod.test.mp3".to_owned())
             .await
             .unwrap();
     }
