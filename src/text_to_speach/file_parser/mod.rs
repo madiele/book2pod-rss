@@ -1,8 +1,9 @@
-use std::fs;
+use std::{fs, path};
 
 use anyhow::{anyhow, Result};
+use epub::doc::EpubDoc;
 
-pub(crate) trait FileParser {
+trait FileParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>>;
 }
 
@@ -14,6 +15,10 @@ impl UniversalFileParser {
             path if path.ends_with(".txt") => {
                 let bytes = fs::read(path)?;
                 TxtParser::parse_bytes(bytes.as_slice())
+            }
+            path if path.ends_with(".epub") => {
+                let bytes = fs::read(path)?;
+                EpubParser::parse_bytes(bytes.as_slice())
             }
             ext => Err(anyhow!("extension is unsupported: {ext}")),
         }
@@ -33,6 +38,24 @@ impl FileParser for TxtParser {
             })
             .collect();
         Ok(paragraphs)
+    }
+}
+
+struct EpubParser;
+
+impl FileParser for EpubParser {
+    fn parse_bytes(input: &[u8]) -> Result<Vec<String>> {
+        //TODO need to refactor as we cant use bytes
+        //TODO need to clean up the resulting xml from all the tags
+        let mut res: Vec<String> = vec![];
+        let mut doc = EpubDoc::new("test.epub").unwrap();
+        loop {
+            res.push(doc.get_current_str().ok_or(anyhow!("can't read page"))?.0);
+            if !doc.go_next() {
+                break;
+            }
+        }
+        Ok(res)
     }
 }
 
@@ -74,6 +97,12 @@ mod tests {
         let result = TxtParser::parse_bytes(test_string).unwrap();
 
         assert_eq!(4, result.len());
+    }
+
+    #[test]
+    fn epub() {
+        let result = EpubParser::parse_bytes("".as_bytes());
+        panic!("{result:?}");
     }
 
     #[test]
