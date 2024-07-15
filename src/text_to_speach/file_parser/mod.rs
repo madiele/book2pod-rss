@@ -55,9 +55,7 @@ impl FileParser for EpubParser {
             let mut final_string: String = "".to_owned();
             for xml_event in page_xml {
                 match xml_event {
-                    Ok(XmlEvent::Characters(c)) => {
-                        final_string.push_str(format!("{} ", c).as_str())
-                    }
+                    Ok(XmlEvent::Characters(c)) => final_string.push_str(format!("{c}\n").as_str()),
                     Ok(_) => (),
                     Err(err) => return Err(anyhow!(err)),
                 }
