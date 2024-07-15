@@ -1,7 +1,8 @@
-use std::{fs, path};
+use std::{any, error::Error, fs, path};
 
 use anyhow::{anyhow, Result};
 use epub::doc::EpubDoc;
+use xml::reader::XmlEvent;
 
 trait FileParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>>;
@@ -55,13 +56,11 @@ impl FileParser for EpubParser {
             let mut final_string: String = "".to_owned();
             for event in parsd {
                 match event {
-                    Ok(x) => match x {
-                        xml::reader::XmlEvent::Characters(c) => {
-                            final_string.push_str(format!("{} ", c).as_str())
-                        }
-                        _ => (),
-                    },
-                    Err(_) => todo!(),
+                    Ok(XmlEvent::Characters(c)) => {
+                        final_string.push_str(format!("{} ", c).as_str())
+                    }
+                    Ok(_) => (),
+                    Err(err) => return Err(anyhow!(err)),
                 }
             }
             res.push(final_string);
