@@ -50,7 +50,21 @@ impl FileParser for EpubParser {
         let mut res: Vec<String> = vec![];
         let mut doc = EpubDoc::new("test.epub").unwrap();
         loop {
-            res.push(doc.get_current_str().ok_or(anyhow!("can't read page"))?.0);
+            let read = doc.get_current_str().ok_or(anyhow!("can't read page"))?.0;
+            let parsd = xml::reader::EventReader::new(read.as_bytes());
+            let mut final_string: String = "".to_owned();
+            for event in parsd {
+                match event {
+                    Ok(x) => match x {
+                        xml::reader::XmlEvent::Characters(c) => {
+                            final_string.push_str(format!("{} ", c).as_str())
+                        }
+                        _ => (),
+                    },
+                    Err(_) => todo!(),
+                }
+            }
+            res.push(final_string);
             if !doc.go_next() {
                 break;
             }
