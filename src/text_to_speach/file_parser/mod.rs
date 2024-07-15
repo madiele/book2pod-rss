@@ -47,15 +47,14 @@ struct EpubParser;
 impl FileParser for EpubParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>> {
         //TODO need to refactor as we cant use bytes
-        //TODO need to clean up the resulting xml from all the tags
         let mut res: Vec<String> = vec![];
         let mut doc = EpubDoc::new("test.epub").unwrap();
         loop {
-            let read = doc.get_current_str().ok_or(anyhow!("can't read page"))?.0;
-            let parsd = xml::reader::EventReader::new(read.as_bytes());
+            let page = doc.get_current_str().ok_or(anyhow!("can't read page"))?.0;
+            let page_xml = xml::reader::EventReader::new(page.as_bytes());
             let mut final_string: String = "".to_owned();
-            for event in parsd {
-                match event {
+            for xml_event in page_xml {
+                match xml_event {
                     Ok(XmlEvent::Characters(c)) => {
                         final_string.push_str(format!("{} ", c).as_str())
                     }
