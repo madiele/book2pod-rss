@@ -1,8 +1,8 @@
-use std::{any, error::Error, fs, path};
+use std::{any, error::Error, fs, io::Cursor, path};
 
 use anyhow::{anyhow, Result};
 use epub::doc::EpubDoc;
-use xml::reader::XmlEvent;
+use xml::{attribute::OwnedAttribute, name::OwnedName, namespace::Namespace, reader::XmlEvent};
 
 trait FileParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>>;
@@ -44,18 +44,42 @@ impl FileParser for TxtParser {
 
 struct EpubParser;
 
+#[derive(Default)]
+struct EpubElement {
+    name: String,
+    attributes: Vec<OwnedAttribute>,
+}
+
 impl FileParser for EpubParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>> {
-        //TODO need to refactor as we cant use bytes
         let mut res: Vec<String> = vec![];
-        let mut doc = EpubDoc::new("test.epub").unwrap();
+        let mut doc = EpubDoc::from_reader(Cursor::new(input))?;
         loop {
             let page = doc.get_current_str().ok_or(anyhow!("can't read page"))?.0;
             let page_xml = xml::reader::EventReader::new(page.as_bytes());
             let mut final_string: String = "".to_owned();
+            let mut elementStack: Vec<EpubElement> = vec![];
             for xml_event in page_xml {
                 match xml_event {
                     Ok(XmlEvent::Characters(c)) => final_string.push_str(format!("{c}\n").as_str()),
+                    Ok(XmlEvent::StartElement {
+                        name,
+                        attributes,
+                        namespace: _,
+                    }) => elementStack.push(
+                        (EpubElement {
+                            name: name.local_name,
+                            attributes,
+                        }),
+                    ),
+                    Ok(XmlEvent::EndElement { name }) => {
+                        for i in 0..elementStack.len() - 1 {
+                            if elementStack.get(i).unwrap().name == name.local_name {
+                                elementStack.remove(i);
+                                break;
+                            }
+                        }
+                    }
                     Ok(_) => (),
                     Err(err) => return Err(anyhow!(err)),
                 }
@@ -71,6 +95,8 @@ impl FileParser for EpubParser {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs::File, io::Read};
+
     use super::*;
 
     #[test]
@@ -111,7 +137,10 @@ mod tests {
 
     #[test]
     fn epub() {
-        let result = EpubParser::parse_bytes("".as_bytes());
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let result = EpubParser::parse_bytes(input.as_slice()).unwrap();
         panic!("{result:?}");
     }
 
