@@ -1,11 +1,41 @@
-use std::{any, error::Error, fs, io::Cursor, path};
+use std::{
+    fs,
+    io::{Cursor, Read},
+};
 
 use anyhow::{anyhow, Result};
 use epub::doc::EpubDoc;
 use xml::{attribute::OwnedAttribute, name::OwnedName, namespace::Namespace, reader::XmlEvent};
 
-trait FileParser {
-    fn parse_bytes(input: &[u8]) -> Result<Vec<String>>;
+trait FileParser<R>
+where
+    R: Read,
+{
+    fn parse_bytes(input: R) -> Result<Vec<String>>;
+}
+
+struct Content {
+    Id: String,
+    Order: usize,
+    Name: String,
+    CharCount: usize,
+}
+
+struct Cover {
+    Name: String,
+    Extension: String,
+    Content: Vec<u8>,
+}
+
+trait FileParserV2<R>
+where
+    R: Read,
+{
+    fn from_reader(input: R) -> Self;
+    fn get_table_of_contets(self) -> Result<Vec<Content>>;
+    fn extract_text_from_content(self, id: String) -> Result<String>;
+    fn get_cover(self) -> Option<Cover>;
+    fn set_cover(self, input: Cover) -> Result<()>;
 }
 
 pub(crate) struct UniversalFileParser {}
@@ -28,7 +58,7 @@ impl UniversalFileParser {
 
 struct TxtParser;
 
-impl FileParser for TxtParser {
+impl FileParser<&[u8]> for TxtParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>> {
         let file_content = String::from_utf8_lossy(input);
         let paragraphs: Vec<String> = file_content
@@ -50,7 +80,7 @@ struct EpubElement {
     attributes: Vec<OwnedAttribute>,
 }
 
-impl FileParser for EpubParser {
+impl FileParser<&[u8]> for EpubParser {
     fn parse_bytes(input: &[u8]) -> Result<Vec<String>> {
         let mut res: Vec<String> = vec![];
         let mut doc = EpubDoc::from_reader(Cursor::new(input))?;
