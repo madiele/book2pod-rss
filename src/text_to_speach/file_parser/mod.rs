@@ -1,6 +1,8 @@
 use std::{
     fs,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Seek},
+    os::windows::fs::FileTimesExt,
+    path::PathBuf,
 };
 
 use anyhow::{anyhow, Result};
@@ -18,7 +20,6 @@ struct Content {
     Id: String,
     Order: usize,
     Name: String,
-    CharCount: usize,
 }
 
 struct Cover {
@@ -27,15 +28,81 @@ struct Cover {
     Content: Vec<u8>,
 }
 
+struct Metadata {
+    Authors: Vec<String>,
+    Titles: Vec<String>,
+    Publisher: Option<String>,
+    Description: Option<String>,
+    Year: Option<usize>,
+}
+
 trait FileParserV2<R>
 where
     R: Read,
 {
-    fn from_reader(input: R) -> Self;
-    fn get_table_of_contets(self) -> Result<Vec<Content>>;
-    fn extract_text_from_content(self, id: String) -> Result<String>;
-    fn get_cover(self) -> Option<Cover>;
-    fn set_cover(self, input: Cover) -> Result<()>;
+    fn from_reader(input: R) -> Result<Self>
+    where
+        Self: Sized;
+
+    fn get_table_of_contets(&self) -> Result<Vec<Content>>;
+    fn extract_text_from_content(&self, id: String) -> Result<String>;
+
+    fn get_cover(&self) -> Option<Cover>;
+    fn set_cover(&self, input: Cover) -> Result<()>;
+
+    fn get_metadata(&self) -> Metadata;
+}
+
+#[derive(Debug)]
+struct EpubParserV2<R>
+where
+    R: Read + Seek,
+{
+    doc: EpubDoc<R>,
+}
+
+impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
+    fn from_reader(input: Cursor<&'a [u8]>) -> Result<Self> {
+        Ok(Self {
+            doc: EpubDoc::from_reader(input)?,
+        })
+    }
+
+    fn get_table_of_contets(&self) -> Result<Vec<Content>> {
+        Ok(self
+            .doc
+            .toc
+            .iter()
+            .map(|a| Content {
+                Id: a.content.to_string_lossy().to_string(),
+                Order: a.play_order,
+                Name: a.label.clone(),
+            })
+            .collect())
+    }
+
+    fn extract_text_from_content(&self, id: String) -> Result<String> {
+        let mut cloned_doc = self.doc.clone();
+
+        cloned_doc.set_current_page(
+            cloned_doc
+                .resource_uri_to_chapter(&PathBuf::from(id))
+                .unwrap(),
+        );
+        Ok(cloned_doc.get_current_str().ok_or(anyhow!("no str!"))?.0)
+    }
+
+    fn get_cover(&self) -> Option<Cover> {
+        todo!()
+    }
+
+    fn set_cover(&self, input: Cover) -> Result<()> {
+        todo!()
+    }
+
+    fn get_metadata(&self) -> Metadata {
+        todo!()
+    }
 }
 
 pub(crate) struct UniversalFileParser {}
@@ -170,8 +237,48 @@ mod tests {
         let mut file = File::open("test.epub").unwrap();
         let mut input = vec![];
         file.read_to_end(&mut input).unwrap();
-        let result = EpubParser::parse_bytes(input.as_slice()).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let result = EpubParserV2::from_reader(input).unwrap();
         panic!("{result:?}");
+    }
+
+    #[test]
+    fn toc() {
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let reader = EpubParserV2::from_reader(input).unwrap();
+        let toc = reader.get_table_of_contets().unwrap();
+
+        assert_eq!(toc[0].Id, "epub\\text/titlepage.xhtml");
+        assert_eq!(toc[0].Name, "Titlepage");
+        assert_eq!(toc[0].Order, 1);
+
+        assert_eq!(toc[1].Id, "epub\\text/imprint.xhtml");
+        assert_eq!(toc[1].Name, "Imprint");
+        assert_eq!(toc[1].Order, 2);
+
+        assert_eq!(toc[2].Id, "epub\\text/poetry.xhtml#the-grave-of-the-slave");
+        assert_eq!(toc[2].Name, "The Grave of the Slave");
+        assert_eq!(toc[2].Order, 3);
+
+        //.....
+
+        assert_eq!(toc.len(), 19);
+    }
+
+    #[test]
+    fn extract_text_from_content() {
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let reader = EpubParserV2::from_reader(input).unwrap();
+        let toc = reader.get_table_of_contets().unwrap();
+
+        let srt = reader.extract_text_from_content(toc[0].Id.clone()).unwrap();
+        panic!("{srt}");
     }
 
     #[test]
