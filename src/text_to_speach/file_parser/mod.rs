@@ -44,7 +44,7 @@ where
         Self: Sized;
 
     fn get_table_of_contents(&mut self) -> Result<Vec<Content>>;
-    fn extract_text_from_content(&mut self, id: String) -> Result<String>;
+    fn extract_text_for_chapter(&mut self, id: String) -> Result<String>;
 
     fn get_cover(&mut self) -> Option<Cover>;
 
@@ -79,17 +79,65 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
             .collect())
     }
 
-    fn extract_text_from_content(&mut self, id: String) -> Result<String> {
-        self.doc.set_current_page(
-            self.doc
-                .resource_uri_to_chapter(&PathBuf::from(id))
-                .ok_or(anyhow!("no chapter found"))?,
-        );
+    fn extract_text_for_chapter(&mut self, id: String) -> Result<String> {
+        let uri = &PathBuf::from(id);
+        let page = self
+            .doc
+            .resource_uri_to_chapter(uri)
+            .ok_or(anyhow!("no chapter found"))?;
+        self.doc.set_current_page(page);
         let (content, _mime) = self
             .doc
             .get_current_str()
             .ok_or(anyhow!("chapter has no content!"))?;
-        Ok(content)
+
+        let page_xml = xml::reader::EventReader::new(content.as_bytes());
+        let mut final_string = "".to_owned();
+        let mut element_stack: Vec<EpubElement> = vec![];
+        for xml_event in page_xml {
+            match xml_event {
+                Ok(XmlEvent::Characters(c)) => {
+                    if !element_stack.iter().any(|e| {
+                        matches!(
+                            e.name.as_str(),
+                            "img"
+                                | "media"
+                                | "script"
+                                | "video"
+                                | "audio"
+                                | "object"
+                                | "embed"
+                                | "iframe"
+                                | "source"
+                                | "track"
+                                | "svg"
+                        )
+                    }) {
+                        final_string.push_str(format!("{c}\n").as_str())
+                    }
+                }
+                Ok(XmlEvent::StartElement {
+                    name,
+                    attributes,
+                    namespace: _,
+                }) => element_stack.push(EpubElement {
+                    name: name.local_name,
+                    attributes,
+                }),
+                Ok(XmlEvent::EndElement { name }) => {
+                    for i in 0..element_stack.len() - 1 {
+                        if element_stack.get(i).unwrap().name == name.local_name {
+                            element_stack.remove(i);
+                            break;
+                        }
+                    }
+                }
+                Ok(_) => (),
+                Err(err) => return Err(anyhow!(err)),
+            }
+        }
+
+        Ok(final_string)
     }
 
     fn get_cover(&mut self) -> Option<Cover> {
@@ -287,8 +335,7 @@ mod tests {
         let mut reader = EpubParserV2::from_reader(input).unwrap();
         let toc = reader.get_table_of_contents().unwrap();
 
-        let srt = reader.extract_text_from_content(toc[0].id.clone()).unwrap();
-        todo!()
+        let srt = reader.extract_text_for_chapter(toc[3].id.clone()).unwrap();
     }
 
     #[test]
@@ -299,16 +346,29 @@ mod tests {
         let input = Cursor::new(input.as_slice());
         let mut reader = EpubParserV2::from_reader(input).unwrap();
 
-        let srt = reader.get_metadata();
+        let metadata = reader.get_metadata();
 
-        assert_eq!(srt.authors, vec!["Sarah Louisa Forten Purvis"]);
+        assert_eq!(metadata.authors, vec!["Sarah Louisa Forten Purvis"]);
         assert_eq!(
-            srt.description,
+            metadata.description,
             Some("A collection of poems by Sarah Louisa Forten Purvis.".to_string())
         );
-        assert_eq!(srt.lang, Some("en-US".to_string()));
-        assert_eq!(srt.publisher, Some("Standard Ebooks".to_string()));
-        assert_eq!(srt.title, Some("Poetry".to_string()));
+        assert_eq!(metadata.lang, Some("en-US".to_string()));
+        assert_eq!(metadata.publisher, Some("Standard Ebooks".to_string()));
+        assert_eq!(metadata.title, Some("Poetry".to_string()));
+    }
+
+    #[test]
+    fn get_cover() {
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let mut reader = EpubParserV2::from_reader(input).unwrap();
+
+        let cover = reader.get_cover().unwrap();
+        assert_eq!(cover.content.len(), 348151);
+        assert_eq!(cover.mime, "image/jpeg");
     }
 
     #[test]
