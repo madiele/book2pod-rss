@@ -17,23 +17,22 @@ where
 }
 
 struct Content {
-    Id: String,
-    Order: usize,
-    Name: String,
+    id: String,
+    order: usize,
+    name: String,
 }
 
 struct Cover {
-    Name: String,
-    Extension: String,
-    Content: Vec<u8>,
+    mime: String,
+    content: Vec<u8>,
 }
 
 struct Metadata {
-    Authors: Vec<String>,
-    Titles: Vec<String>,
-    Publisher: Option<String>,
-    Description: Option<String>,
-    Year: Option<usize>,
+    authors: Vec<String>,
+    title: Option<String>,
+    publisher: Option<String>,
+    description: Option<String>,
+    lang: Option<String>,
 }
 
 trait FileParserV2<R>
@@ -44,13 +43,12 @@ where
     where
         Self: Sized;
 
-    fn get_table_of_contets(&self) -> Result<Vec<Content>>;
-    fn extract_text_from_content(&self, id: String) -> Result<String>;
+    fn get_table_of_contents(&mut self) -> Result<Vec<Content>>;
+    fn extract_text_from_content(&mut self, id: String) -> Result<String>;
 
-    fn get_cover(&self) -> Option<Cover>;
-    fn set_cover(&self, input: Cover) -> Result<()>;
+    fn get_cover(&mut self) -> Option<Cover>;
 
-    fn get_metadata(&self) -> Metadata;
+    fn get_metadata(&mut self) -> Metadata;
 }
 
 #[derive(Debug)]
@@ -68,40 +66,52 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
         })
     }
 
-    fn get_table_of_contets(&self) -> Result<Vec<Content>> {
+    fn get_table_of_contents(&mut self) -> Result<Vec<Content>> {
         Ok(self
             .doc
             .toc
             .iter()
             .map(|a| Content {
-                Id: a.content.to_string_lossy().to_string(),
-                Order: a.play_order,
-                Name: a.label.clone(),
+                id: a.content.to_string_lossy().to_string(),
+                order: a.play_order,
+                name: a.label.clone(),
             })
             .collect())
     }
 
-    fn extract_text_from_content(&self, id: String) -> Result<String> {
-        let mut cloned_doc = self.doc.clone();
-
-        cloned_doc.set_current_page(
-            cloned_doc
+    fn extract_text_from_content(&mut self, id: String) -> Result<String> {
+        self.doc.set_current_page(
+            self.doc
                 .resource_uri_to_chapter(&PathBuf::from(id))
-                .unwrap(),
+                .ok_or(anyhow!("no chapter found"))?,
         );
-        Ok(cloned_doc.get_current_str().ok_or(anyhow!("no str!"))?.0)
+        let (content, _mime) = self
+            .doc
+            .get_current_str()
+            .ok_or(anyhow!("chapter has no content!"))?;
+        Ok(content)
     }
 
-    fn get_cover(&self) -> Option<Cover> {
-        todo!()
+    fn get_cover(&mut self) -> Option<Cover> {
+        let (content, mime) = self.doc.get_cover()?;
+        Some(Cover { mime, content })
     }
 
-    fn set_cover(&self, input: Cover) -> Result<()> {
-        todo!()
-    }
+    fn get_metadata(&mut self) -> Metadata {
+        let metadata = &self.doc.metadata;
+        let title = metadata.get("title");
+        let authors = metadata.get("creator");
+        let publisher = metadata.get("publisher");
+        let desc = metadata.get("description");
+        let lang = metadata.get("language");
 
-    fn get_metadata(&self) -> Metadata {
-        todo!()
+        Metadata {
+            publisher: publisher.and_then(|x| x.first().cloned()),
+            authors: authors.cloned().unwrap_or_default(),
+            lang: lang.and_then(|l| l.first().cloned()),
+            title: title.map(|a| a.first().cloned()).unwrap_or_default(),
+            description: desc.map(|a| a.first().cloned()).unwrap_or_default(),
+        }
     }
 }
 
@@ -248,20 +258,20 @@ mod tests {
         let mut input = vec![];
         file.read_to_end(&mut input).unwrap();
         let input = Cursor::new(input.as_slice());
-        let reader = EpubParserV2::from_reader(input).unwrap();
-        let toc = reader.get_table_of_contets().unwrap();
+        let mut reader = EpubParserV2::from_reader(input).unwrap();
+        let toc = reader.get_table_of_contents().unwrap();
 
-        assert_eq!(toc[0].Id, "epub\\text/titlepage.xhtml");
-        assert_eq!(toc[0].Name, "Titlepage");
-        assert_eq!(toc[0].Order, 1);
+        assert_eq!(toc[0].id, "epub\\text/titlepage.xhtml");
+        assert_eq!(toc[0].name, "Titlepage");
+        assert_eq!(toc[0].order, 1);
 
-        assert_eq!(toc[1].Id, "epub\\text/imprint.xhtml");
-        assert_eq!(toc[1].Name, "Imprint");
-        assert_eq!(toc[1].Order, 2);
+        assert_eq!(toc[1].id, "epub\\text/imprint.xhtml");
+        assert_eq!(toc[1].name, "Imprint");
+        assert_eq!(toc[1].order, 2);
 
-        assert_eq!(toc[2].Id, "epub\\text/poetry.xhtml#the-grave-of-the-slave");
-        assert_eq!(toc[2].Name, "The Grave of the Slave");
-        assert_eq!(toc[2].Order, 3);
+        assert_eq!(toc[2].id, "epub\\text/poetry.xhtml#the-grave-of-the-slave");
+        assert_eq!(toc[2].name, "The Grave of the Slave");
+        assert_eq!(toc[2].order, 3);
 
         //.....
 
@@ -274,11 +284,31 @@ mod tests {
         let mut input = vec![];
         file.read_to_end(&mut input).unwrap();
         let input = Cursor::new(input.as_slice());
-        let reader = EpubParserV2::from_reader(input).unwrap();
-        let toc = reader.get_table_of_contets().unwrap();
+        let mut reader = EpubParserV2::from_reader(input).unwrap();
+        let toc = reader.get_table_of_contents().unwrap();
 
-        let srt = reader.extract_text_from_content(toc[0].Id.clone()).unwrap();
-        panic!("{srt}");
+        let srt = reader.extract_text_from_content(toc[0].id.clone()).unwrap();
+        todo!()
+    }
+
+    #[test]
+    fn get_metadata() {
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let mut reader = EpubParserV2::from_reader(input).unwrap();
+
+        let srt = reader.get_metadata();
+
+        assert_eq!(srt.authors, vec!["Sarah Louisa Forten Purvis"]);
+        assert_eq!(
+            srt.description,
+            Some("A collection of poems by Sarah Louisa Forten Purvis.".to_string())
+        );
+        assert_eq!(srt.lang, Some("en-US".to_string()));
+        assert_eq!(srt.publisher, Some("Standard Ebooks".to_string()));
+        assert_eq!(srt.title, Some("Poetry".to_string()));
     }
 
     #[test]
