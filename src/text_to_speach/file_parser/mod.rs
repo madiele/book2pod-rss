@@ -1,13 +1,12 @@
 use std::{
     fs,
     io::{Cursor, Read, Seek},
-    os::windows::fs::FileTimesExt,
     path::PathBuf,
 };
 
 use anyhow::{anyhow, Result};
 use epub::doc::EpubDoc;
-use xml::{attribute::OwnedAttribute, name::OwnedName, namespace::Namespace, reader::XmlEvent};
+use xml::{attribute::OwnedAttribute, reader::XmlEvent};
 
 trait FileParser<R>
 where
@@ -44,7 +43,11 @@ where
         Self: Sized;
 
     fn get_table_of_contents(&mut self) -> Result<Vec<Content>>;
-    fn extract_text_for_chapter(&mut self, id: String) -> Result<String>;
+    fn extract_text_for_chapter(
+        &mut self,
+        from_id: String,
+        to_id: Option<String>,
+    ) -> Result<String>;
 
     fn get_cover(&mut self) -> Option<Cover>;
 
@@ -79,61 +82,89 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
             .collect())
     }
 
-    fn extract_text_for_chapter(&mut self, id: String) -> Result<String> {
-        let uri = &PathBuf::from(id);
-        let page = self
-            .doc
-            .resource_uri_to_chapter(uri)
-            .ok_or(anyhow!("no chapter found"))?;
-        self.doc.set_current_page(page);
-        let (content, _mime) = self
-            .doc
-            .get_current_str()
-            .ok_or(anyhow!("chapter has no content!"))?;
+    fn extract_text_for_chapter(
+        &mut self,
+        from_id: String,
+        to_id: Option<String>,
+    ) -> Result<String> {
+        let (from_uri, from_tag, to_tag, to_uri) = extract_positions(from_id, to_id)?;
 
-        let page_xml = xml::reader::EventReader::new(content.as_bytes());
+        let mut table_of_contents = self.get_table_of_contents()?;
+        table_of_contents.sort_by(|a, b| a.order.cmp(&b.order));
+
+        let content_to_read =
+            filter_page_to_iterate_over(table_of_contents.iter(), &from_uri, &to_uri);
+
         let mut final_string = "".to_owned();
-        let mut element_stack: Vec<EpubElement> = vec![];
-        for xml_event in page_xml {
-            match xml_event {
-                Ok(XmlEvent::Characters(c)) => {
-                    if !element_stack.iter().any(|e| {
-                        matches!(
-                            e.name.as_str(),
-                            "img"
-                                | "media"
-                                | "script"
-                                | "video"
-                                | "audio"
-                                | "object"
-                                | "embed"
-                                | "iframe"
-                                | "source"
-                                | "track"
-                                | "svg"
-                        )
-                    }) {
-                        final_string.push_str(format!("{c}\n").as_str())
-                    }
-                }
-                Ok(XmlEvent::StartElement {
-                    name,
-                    attributes,
-                    namespace: _,
-                }) => element_stack.push(EpubElement {
-                    name: name.local_name,
-                    attributes,
-                }),
-                Ok(XmlEvent::EndElement { name }) => {
-                    for i in 0..element_stack.len() - 1 {
-                        if element_stack.get(i).unwrap().name == name.local_name {
-                            element_stack.remove(i);
-                            break;
+        let mut skip_text = from_tag.is_some();
+        for content in content_to_read {
+            let page = self
+                .doc
+                .resource_uri_to_chapter(&from_uri)
+                .ok_or(anyhow!("no chapter found"))?;
+            self.doc.set_current_page(page);
+            let (content, _mime) = self
+                .doc
+                .get_current_str()
+                .ok_or(anyhow!("chapter has no content!"))?;
+
+            let page_xml = xml::reader::EventReader::new(content.as_bytes());
+            let mut element_stack: Vec<EpubElement> = vec![];
+            for xml_event in page_xml {
+                match xml_event {
+                    Ok(XmlEvent::Characters(c)) => {
+                        if !skip_text
+                            && !element_stack.iter().any(|e| {
+                                matches!(
+                                    e.name.as_str(),
+                                    "img"
+                                        | "media"
+                                        | "script"
+                                        | "video"
+                                        | "audio"
+                                        | "object"
+                                        | "embed"
+                                        | "iframe"
+                                        | "source"
+                                        | "track"
+                                        | "svg"
+                                )
+                            })
+                        {
+                            final_string.push_str(format!("{c}\n").as_str())
                         }
                     }
+                    Ok(XmlEvent::StartElement {
+                        name,
+                        attributes,
+                        namespace: _,
+                    }) => {
+                        if attributes.iter().any(|e| {
+                            e.name.local_name.as_str() == "id" && Some(e.value.clone()) == from_tag
+                        }) {
+                            skip_text = false;
+                        }
+                        if attributes.iter().any(|e| {
+                            e.name.local_name.as_str() == "id" && Some(e.value.clone()) == to_tag
+                        }) {
+                            return Ok(final_string);
+                        }
+                        element_stack.push(EpubElement {
+                            name: name.local_name,
+                            attributes,
+                        })
+                    }
+                    Ok(XmlEvent::EndElement { name }) => {
+                        for i in 0..element_stack.len() - 1 {
+                            if element_stack.get(i).unwrap().name == name.local_name {
+                                element_stack.remove(i);
+                                break;
+                            }
+                        }
+                    }
+                    Ok(_) => (),
+                    Err(err) => return Err(anyhow!(err)),
                 }
-                Ok(_) => (),
-                Err(err) => return Err(anyhow!(err)),
             }
         }
 
@@ -161,6 +192,50 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
             description: desc.map(|a| a.first().cloned()).unwrap_or_default(),
         }
     }
+}
+
+fn filter_page_to_iterate_over<'a>(
+    iterator: std::slice::Iter<'a, Content>,
+    from_uri: &PathBuf,
+    to_uri: &Option<PathBuf>,
+) -> Vec<&'a Content> {
+    let content_to_read = iterator
+        .skip_while(|e| {
+            e.id.splitn(2, '#')
+                .collect::<Vec<&str>>()
+                .first()
+                .is_some_and(|s| *s != from_uri.to_string_lossy())
+        })
+        .take_while(|e| {
+            to_uri.is_none() || to_uri.clone().is_some_and(|u| e.id != u.to_string_lossy())
+        })
+        .collect::<Vec<&Content>>();
+    content_to_read
+}
+
+fn extract_positions(
+    from_id: String,
+    to_id: Option<String>,
+) -> Result<(PathBuf, Option<String>, Option<String>, Option<PathBuf>), anyhow::Error> {
+    let from_split = from_id.splitn(2, '#').collect::<Vec<&str>>();
+    let from_uri = &PathBuf::from(
+        from_split
+            .first()
+            .ok_or(anyhow!("id is not correct {from_id}"))?,
+    );
+    let from_tag = from_split.get(1).map(|x| x.to_string());
+    let mut to_tag = None;
+    let mut to_uri = None;
+    if let Some(id) = to_id {
+        let to_split = id.splitn(2, '#').collect::<Vec<&str>>();
+        to_uri = Some(PathBuf::from(
+            to_split
+                .first()
+                .ok_or(anyhow!("id is not correct {from_id}"))?,
+        ));
+        to_tag = to_split.get(1).map(|x| x.to_string());
+    };
+    Ok((from_uri.to_owned(), from_tag, to_tag, to_uri))
 }
 
 pub(crate) struct UniversalFileParser {}
@@ -250,6 +325,7 @@ impl FileParser<&[u8]> for EpubParser {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::{fs::File, io::Read};
 
     use super::*;
@@ -335,7 +411,12 @@ mod tests {
         let mut reader = EpubParserV2::from_reader(input).unwrap();
         let toc = reader.get_table_of_contents().unwrap();
 
-        let srt = reader.extract_text_for_chapter(toc[3].id.clone()).unwrap();
+        //BUG it seems to do not return correct output, 18 -> should be copyright page
+        //maybe the tag matchin is broken
+        let srt = reader
+            .extract_text_for_chapter(toc[16].id.clone(), Some(toc[18].id.clone()))
+            .unwrap();
+        panic!("{srt}");
     }
 
     #[test]
