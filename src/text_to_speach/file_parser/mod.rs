@@ -155,12 +155,16 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
                         namespace: _,
                     }) => {
                         if attributes.iter().any(|e| {
-                            e.name.local_name.as_str() == "id" && Some(e.value.clone()) == from_tag
+                            e.name.local_name.as_str() == "id"
+                                && Some(e.value.clone()) == from_tag
+                                && *content_uri == from_uri
                         }) {
                             skip_text = false;
                         }
                         if attributes.iter().any(|e| {
-                            e.name.local_name.as_str() == "id" && Some(e.value.clone()) == to_tag
+                            e.name.local_name.as_str() == "id"
+                                && Some(e.value.clone()) == to_tag
+                                && Some(content_uri) == to_uri.as_ref()
                         }) {
                             return Ok(final_string);
                         }
@@ -340,7 +344,6 @@ impl FileParser<&[u8]> for EpubParser {
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
     use std::{fs::File, io::Read};
 
     use super::*;
@@ -418,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_text_from_content() {
+    fn extract_text_from_content_from_tag_to_end() {
         let mut file = File::open("test.epub").unwrap();
         let mut input = vec![];
         file.read_to_end(&mut input).unwrap();
@@ -426,10 +429,26 @@ mod tests {
         let mut reader = EpubParserV2::from_reader(input).unwrap();
         let toc = reader.get_table_of_contents().unwrap();
 
-        let srt = reader
+        let content_to_read = reader
             .extract_text_for_chapters(toc[18].id.clone(), None)
             .unwrap();
-        panic!("{srt}");
+        assert!(content_to_read.starts_with("Uncopyright"));
+    }
+
+    #[test]
+    fn extract_text_from_content_from_tag_to_tag() {
+        let mut file = File::open("test.epub").unwrap();
+        let mut input = vec![];
+        file.read_to_end(&mut input).unwrap();
+        let input = Cursor::new(input.as_slice());
+        let mut reader = EpubParserV2::from_reader(input).unwrap();
+        let toc = reader.get_table_of_contents().unwrap();
+
+        let content_to_read = reader
+            .extract_text_for_chapters(toc[13].id.clone(), Some(toc[14].id.clone()))
+            .unwrap();
+        assert!(content_to_read.starts_with("Hours of Childhood"));
+        assert!(!content_to_read.contains("An Appeal to Woman"));
     }
 
     #[test]
