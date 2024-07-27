@@ -1,5 +1,6 @@
 use std::{
-    fs,
+    collections::{HashMap, HashSet},
+    default, fs,
     io::{Cursor, Read, Seek},
     path::PathBuf,
 };
@@ -43,7 +44,7 @@ where
         Self: Sized;
 
     fn get_table_of_contents(&mut self) -> Result<Vec<Content>>;
-    fn extract_text_for_chapter(
+    fn extract_text_for_chapters(
         &mut self,
         from_id: String,
         to_id: Option<String>,
@@ -82,7 +83,7 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
             .collect())
     }
 
-    fn extract_text_for_chapter(
+    fn extract_text_for_chapters(
         &mut self,
         from_id: String,
         to_id: Option<String>,
@@ -97,11 +98,25 @@ impl<'a> FileParserV2<Cursor<&'a [u8]>> for EpubParserV2<Cursor<&'a [u8]>> {
 
         let mut final_string = "".to_owned();
         let mut skip_text = from_tag.is_some();
+        let mut scanned_pages: HashSet<usize> = HashSet::default();
         for content in content_to_read {
+            let content_split = content.id.splitn(2, '#').collect::<Vec<&str>>();
+            let content_uri = &PathBuf::from(
+                content_split
+                    .first()
+                    .ok_or(anyhow!("id is not correct {}", content.id))?,
+            );
             let page = self
                 .doc
-                .resource_uri_to_chapter(&from_uri)
+                .resource_uri_to_chapter(content_uri)
                 .ok_or(anyhow!("no chapter found"))?;
+
+            if scanned_pages.contains(&page) {
+                continue;
+            } else {
+                scanned_pages.insert(page);
+            }
+
             self.doc.set_current_page(page);
             let (content, _mime) = self
                 .doc
@@ -411,10 +426,8 @@ mod tests {
         let mut reader = EpubParserV2::from_reader(input).unwrap();
         let toc = reader.get_table_of_contents().unwrap();
 
-        //BUG it seems to do not return correct output, 18 -> should be copyright page
-        //maybe the tag matchin is broken
         let srt = reader
-            .extract_text_for_chapter(toc[16].id.clone(), Some(toc[18].id.clone()))
+            .extract_text_for_chapters(toc[18].id.clone(), None)
             .unwrap();
         panic!("{srt}");
     }
